@@ -21,7 +21,7 @@ import {
   streamViaDaemon,
 } from '../providers/daemon';
 import { fetchElevenLabsVoiceOptions } from '../providers/elevenlabs-voices';
-import { customReasonLengthBucket } from '@open-design/contracts/analytics';
+import { normalizeCustomReason } from '@open-design/contracts/analytics';
 import {
   deletePreviewComment,
   fetchPreviewComments,
@@ -1016,7 +1016,7 @@ export function ProjectView({
           rating: change.rating,
           reasonCodes: change.reasonCodes ?? [],
           hasCustomReason: !!change.customReason,
-          customReasonLengthBucket: customReasonLengthBucket(change.customReason),
+          customReason: normalizeCustomReason(change.customReason),
         });
       }
     },

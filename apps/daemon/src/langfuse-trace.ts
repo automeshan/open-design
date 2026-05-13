@@ -167,8 +167,8 @@ export interface FeedbackReportContext {
   prefs: TelemetryPrefs;
   rating: 'positive' | 'negative';
   reasonCodes: string[];
-  /** Coarse length bucket of the custom-reason text. Raw text never leaves the daemon. */
-  customReasonLengthBucket: '0' | '1_20' | '21_100' | '101_500' | '501_plus';
+  /** Raw "other" free text the user typed. Trimmed; empty string when absent. */
+  customReason: string;
   hasCustomReason: boolean;
   /** Optional context bag that ends up in Langfuse score metadata. */
   metadata?: Record<string, unknown>;
@@ -700,7 +700,8 @@ export function buildFeedbackPayload(ctx: FeedbackReportContext): unknown[] {
     reasonCodes: ctx.reasonCodes,
     reasonCount: ctx.reasonCodes.length,
     hasCustomReason: ctx.hasCustomReason,
-    customReasonLengthBucket: ctx.customReasonLengthBucket,
+    // Raw text — gated upstream by telemetry.content consent.
+    customReason: ctx.customReason || undefined,
     installationId: ctx.installationId ?? undefined,
     ...(ctx.metadata ?? {}),
   };

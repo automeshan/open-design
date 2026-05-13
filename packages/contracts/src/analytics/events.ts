@@ -160,14 +160,9 @@ export type TrackingFeedbackReasonCode =
   | 'hard_to_use'
   | 'other';
 
-// Per product tracking doc: custom_reason is reported as a length bucket,
-// never the raw text.
-export type TrackingCustomReasonLengthBucket =
-  | '0'
-  | '1_20'
-  | '21_100'
-  | '101_500'
-  | '501_plus';
+// Product confirmed on 2026-05-13: custom_reason ships the raw text so
+// analysts can read the actual feedback. The earlier length-bucket approach
+// from the tracking doc draft is no longer in effect.
 
 export type TrackingTokenCountSource =
   | 'provider_usage'
@@ -445,7 +440,10 @@ interface AssistantFeedbackReasonResultBase extends AssistantFeedbackBase {
   reason: TrackingFeedbackReasonCode[];
   reason_count: number;
   has_custom_reason: boolean;
-  custom_reason: TrackingCustomReasonLengthBucket;
+  /** Raw free-text the user typed in the "other" input. Empty string when
+   * the user didn't select "other" or left the field blank. Product
+   * confirmed on 2026-05-13 that the raw text ships (no length bucketing). */
+  custom_reason: string;
 }
 
 export interface AssistantFeedbackReasonClickProps
@@ -693,19 +691,14 @@ export function artifactKindToTracking(args: {
   return 'unknown';
 }
 
-// Bucket the assistant-feedback custom reason text into a coarse length
-// band. The product tracking doc forbids sending the raw text — buckets
-// only — so this is the single place that converts free text to wire
-// format. Trim trailing whitespace so accidental newlines don't bump a
-// blank field into '1_20'.
-export function customReasonLengthBucket(
+/**
+ * Normalize the "other" custom-reason free text for transport. Trims
+ * whitespace and returns empty string when the field is blank or the user
+ * didn't select the "other" option. Callers should pass the raw text only
+ * when `has_custom_reason` is true; the helper itself is permissive.
+ */
+export function normalizeCustomReason(
   text: string | null | undefined,
-): TrackingCustomReasonLengthBucket {
-  const trimmed = (text ?? '').trim();
-  const length = trimmed.length;
-  if (length === 0) return '0';
-  if (length <= 20) return '1_20';
-  if (length <= 100) return '21_100';
-  if (length <= 500) return '101_500';
-  return '501_plus';
+): string {
+  return (text ?? '').trim();
 }

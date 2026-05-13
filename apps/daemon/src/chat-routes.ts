@@ -234,12 +234,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       rating: 'positive' | 'negative';
       reasonCodes: string[];
       hasCustomReason: boolean;
-      customReasonLengthBucket:
-        | '0'
-        | '1_20'
-        | '21_100'
-        | '101_500'
-        | '501_plus';
+      customReason: string;
     }>;
     if (!runId) {
       return sendApiError(res, 400, 'INVALID_RUN_ID', 'runId missing');
@@ -250,7 +245,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
     const reasonCodes = Array.isArray(body.reasonCodes)
       ? body.reasonCodes.filter((c): c is string => typeof c === 'string')
       : [];
-    const bucket = body.customReasonLengthBucket ?? '0';
+    const customReason = typeof body.customReason === 'string' ? body.customReason : '';
     const reportFeedback = ctx.telemetry?.reportFeedback;
     if (!reportFeedback) {
       res.status(202).json({ status: 'skipped_no_sink' });
@@ -263,7 +258,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       conversationId: body.conversationId,
       assistantMessageId: body.assistantMessageId,
       hasCustomReason: body.hasCustomReason === true,
-      customReasonLengthBucket: bucket,
+      customReason,
     };
     // Don't await — the request returns immediately. Errors are logged
     // inside langfuse-bridge.
@@ -272,7 +267,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       rating: body.rating,
       reasonCodes,
       hasCustomReason: body.hasCustomReason === true,
-      customReasonLengthBucket: bucket,
+      customReason,
       scoreMetadata,
     });
     res.status(202).json({ status: 'accepted' });

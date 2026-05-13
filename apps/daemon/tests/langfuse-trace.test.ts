@@ -763,7 +763,7 @@ function makeFeedbackCtx(
     rating: 'positive',
     reasonCodes: ['matched_request'],
     hasCustomReason: false,
-    customReasonLengthBucket: '0',
+    customReason: '',
     ...overrides,
   };
 }
@@ -775,11 +775,11 @@ describe('buildFeedbackPayload', () => {
         rating: 'negative',
         reasonCodes: ['missed_request', 'weak_visual'],
         hasCustomReason: true,
-        customReasonLengthBucket: '21_100',
+        customReason: 'It got the layout wrong on tablet',
       }),
     ) as Array<Record<string, any>>;
     expect(batch).toHaveLength(3);
-    const ratingScore = batch[0];
+    const ratingScore = batch[0]!;
     expect(ratingScore.type).toBe('score-create');
     expect(ratingScore.body.traceId).toBe('run-feedback-1');
     expect(ratingScore.body.name).toBe('user_rating');
@@ -788,7 +788,7 @@ describe('buildFeedbackPayload', () => {
     expect(ratingScore.body.comment).toBe('negative');
     expect(ratingScore.body.metadata).toMatchObject({
       reasonCount: 2,
-      customReasonLengthBucket: '21_100',
+      customReason: 'It got the layout wrong on tablet',
       hasCustomReason: true,
     });
     for (const reasonScore of batch.slice(1)) {
@@ -797,8 +797,8 @@ describe('buildFeedbackPayload', () => {
       expect(reasonScore.body.comment).toBe('negative');
       expect(reasonScore.body.traceId).toBe('run-feedback-1');
     }
-    expect(batch[1].body.value).toBe('missed_request');
-    expect(batch[2].body.value).toBe('weak_visual');
+    expect(batch[1]!.body.value).toBe('missed_request');
+    expect(batch[2]!.body.value).toBe('weak_visual');
   });
 
   it('does not emit reason scores when no codes were submitted', () => {
@@ -806,8 +806,8 @@ describe('buildFeedbackPayload', () => {
       makeFeedbackCtx({ reasonCodes: [] }),
     ) as Array<Record<string, any>>;
     expect(batch).toHaveLength(1);
-    expect(batch[0].body.name).toBe('user_rating');
-    expect(batch[0].body.value).toBe(1);
+    expect(batch[0]!.body.name).toBe('user_rating');
+    expect(batch[0]!.body.value).toBe(1);
   });
 });
 
@@ -850,7 +850,7 @@ describe('reportRunFeedback', () => {
       { config: TEST_CONFIG, fetchImpl: fetchSpy as any },
     );
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0];
+    const [url, init] = fetchSpy.mock.calls[0]!;
     expect(url).toBe('https://us.cloud.langfuse.com/api/public/ingestion');
     expect(init.method).toBe('POST');
     const body = JSON.parse(init.body);

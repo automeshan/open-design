@@ -71,10 +71,10 @@ export interface ChatMessageFeedback {
  * talks to Langfuse directly), and gates this on `telemetry.metrics +
  * telemetry.content` consent independently of what the browser thinks.
  *
- * Custom-reason free text is NEVER sent over the wire — the web client
- * computes a length bucket via `customReasonLengthBucket()` and forwards
- * only that. The bucket follows the product tracking doc constraint and
- * lets PostHog/Langfuse keep their distributions comparable.
+ * `customReason` ships the raw free text the user typed in the "other"
+ * input (trimmed). Product confirmed on 2026-05-13 that analysts need the
+ * text to make sense of the feedback; this is consent-gated behind
+ * `telemetry.content` like the rest of the message-content telemetry.
  */
 export interface ChatRunFeedbackRequest {
   projectId: string;
@@ -83,8 +83,8 @@ export interface ChatRunFeedbackRequest {
   rating: ChatMessageFeedbackRating;
   reasonCodes: ChatMessageFeedbackReasonCode[];
   hasCustomReason: boolean;
-  /** Coarse length bucket of the custom reason — `customReasonLengthBucket()`. */
-  customReasonLengthBucket: '0' | '1_20' | '21_100' | '101_500' | '501_plus';
+  /** Raw "other" free text (trimmed). Empty string when no custom reason. */
+  customReason: string;
 }
 
 export interface ChatRunFeedbackResponse {

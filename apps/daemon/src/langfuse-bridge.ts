@@ -366,7 +366,8 @@ export interface ReportRunFeedbackFromDaemonOpts {
   rating: 'positive' | 'negative';
   reasonCodes: string[];
   hasCustomReason: boolean;
-  customReasonLengthBucket: '0' | '1_20' | '21_100' | '101_500' | '501_plus';
+  /** Raw "other" free text. Empty when no custom reason. */
+  customReason: string;
   /** Extra context for Langfuse score metadata (projectId / conversationId / assistantMessageId). */
   scoreMetadata?: Record<string, unknown>;
   fetchImpl?: typeof fetch;
@@ -399,7 +400,7 @@ export async function reportRunFeedbackFromDaemon(
       rating: opts.rating,
       reasonCodes: opts.reasonCodes,
       hasCustomReason: opts.hasCustomReason,
-      customReasonLengthBucket: opts.customReasonLengthBucket,
+      customReason: opts.customReason,
       ...(opts.scoreMetadata ? { metadata: opts.scoreMetadata } : {}),
     };
     await reportRunFeedback(

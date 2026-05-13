@@ -307,7 +307,7 @@ export async function reportChatRunFeedback(req: {
   rating: 'positive' | 'negative';
   reasonCodes: string[];
   hasCustomReason: boolean;
-  customReasonLengthBucket: '0' | '1_20' | '21_100' | '101_500' | '501_plus';
+  customReason: string;
 }): Promise<void> {
   try {
     await fetch(`/api/runs/${encodeURIComponent(req.runId)}/feedback`, {

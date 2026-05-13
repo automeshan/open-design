@@ -27,7 +27,7 @@ import type {
   ProjectFile,
 } from "../types";
 import {
-  customReasonLengthBucket,
+  normalizeCustomReason,
   type TrackingFeedbackRatingWithNone,
   type TrackingFeedbackReasonCode,
   type TrackingProjectKind,
@@ -552,9 +552,7 @@ function AssistantFeedback({
         reason: reasons,
         reason_count: reasons.length,
         has_custom_reason: hasOther && trimmedCustomReason.length > 0,
-        custom_reason: customReasonLengthBucket(
-          hasOther ? trimmedCustomReason : null,
-        ),
+        custom_reason: hasOther ? normalizeCustomReason(trimmedCustomReason) : '',
       };
       trackAssistantFeedbackReasonClick(
         analytics.track,
