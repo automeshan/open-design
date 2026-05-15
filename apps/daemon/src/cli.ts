@@ -6,6 +6,7 @@ import { runConnectorsToolCli } from './tools-connectors-cli.js';
 import { runLiveArtifactsToolCli } from './tools-live-artifacts-cli.js';
 import { splitResearchSubcommand } from './research/cli-args.js';
 import { openBrowser } from './browser-open.js';
+import { resolveDaemonUrl } from './daemon-url.js';
 
 const argv = process.argv.slice(2);
 
@@ -134,7 +135,7 @@ const UI_BOOLEAN_FLAGS = new Set([
 // to their handlers); we just export the bindings up here so the
 // dispatch path always sees an initialized value.
 const DAEMON_STRING_FLAGS = new Set([
-  'daemon-url', 'port', 'host', 'namespace',
+  'daemon-url', 'port', 'host',
 ]);
 const DAEMON_BOOLEAN_FLAGS = new Set([
   'help', 'h', 'json', 'headless', 'serve-web', 'no-open',
@@ -382,8 +383,7 @@ async function runResearchSearch(rawArgs) {
     console.error('--query required');
     process.exit(2);
   }
-  const daemonUrl =
-    flags['daemon-url'] || process.env.OD_DAEMON_URL || 'http://127.0.0.1:7456';
+  const daemonUrl = await cliDaemonUrl(flags);
   const maxSources =
     flags['max-sources'] == null ? undefined : Number(flags['max-sources']);
   const url = `${daemonUrl.replace(/\/$/, '')}/api/research/search`;
@@ -420,7 +420,7 @@ Output is JSON only on stdout:
 Flags:
   --query        Required search query.
   --max-sources  Optional source cap. Defaults to 5, clamped to Tavily's max.
-  --daemon-url   Local daemon URL. Defaults to OD_DAEMON_URL or http://127.0.0.1:7456.`);
+  --daemon-url   Local daemon URL. Defaults to OD_DAEMON_URL, OD_SIDECAR_IPC_PATH discovery, or http://127.0.0.1:7456.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -458,7 +458,7 @@ async function runMediaGenerate(rawArgs) {
     process.exit(2);
   }
 
-  const daemonUrl = flags['daemon-url'] || process.env.OD_DAEMON_URL || 'http://127.0.0.1:7456';
+  const daemonUrl = await cliDaemonUrl(flags);
   const projectId = flags.project || process.env.OD_PROJECT_ID;
   if (!projectId) {
     console.error(
@@ -539,8 +539,7 @@ async function runMediaWait(rawArgs) {
     printMediaHelp();
     process.exit(2);
   }
-  const daemonUrl =
-    flags['daemon-url'] || process.env.OD_DAEMON_URL || 'http://127.0.0.1:7456';
+  const daemonUrl = await cliDaemonUrl(flags);
   const since = Number.isFinite(Number(flags.since))
     ? Number(flags.since)
     : 0;
@@ -722,6 +721,14 @@ function parseFlags(argv, opts = {}) {
   return out;
 }
 
+async function cliDaemonUrl(flags) {
+  return resolveDaemonUrl({ flagUrl: flags?.['daemon-url'] });
+}
+
+async function cliDaemonBaseUrl(flags) {
+  return (await cliDaemonUrl(flags)).replace(/\/$/, '');
+}
+
 function printMediaHelp() {
   console.log(`Usage: od media generate --surface <image|video|audio> --model <id> [opts]
        "$OD_NODE_BIN" "$OD_BIN" media generate --surface <image|video|audio> --model <id> [opts]
@@ -751,7 +758,7 @@ Common options:
                             future image-edit endpoints). Daemon reads
                             the file from the project, base64-encodes
                             it, and forwards it to the upstream API.
-  --daemon-url http://127.0.0.1:7456
+  --daemon-url <url>
 
 Output: a single line of JSON: {"file": { name, size, kind, mime, ... }}.
 
@@ -781,8 +788,7 @@ async function runMcp(args) {
     return;
   }
 
-  const { resolveMcpDaemonUrl } = await import('./mcp-daemon-url.js');
-  const daemonUrl = await resolveMcpDaemonUrl({ flagUrl: flags['daemon-url'] });
+  const daemonUrl = await cliDaemonUrl(flags);
 
   const { runMcpStdio } = await import('./mcp.js');
   await runMcpStdio({ daemonUrl });
@@ -798,9 +804,7 @@ project without exporting a zip every iteration.
 
 Options:
   --daemon-url <url>   Open Design daemon HTTP base URL. Resolution
-                       order: this flag, OD_DAEMON_URL, the running
-                       daemon's sidecar IPC status socket
-                       (/tmp/open-design/ipc/<namespace>/daemon.sock),
+                       order: this flag, OD_DAEMON_URL, OD_SIDECAR_IPC_PATH,
                        then http://127.0.0.1:7456. Each new MCP spawn
                        discovers the live daemon URL at startup, so
                        MCP client configs stay valid across daemon
@@ -1001,7 +1005,7 @@ Exit codes:
   // can't resolve.
   let registry;
   if (!flags['no-daemon']) {
-    const base = libraryDaemonUrl(flags).replace(/\/$/, '');
+    const base = (await libraryDaemonUrl(flags)).replace(/\/$/, '');
     try {
       const [skillsResp, dsResp, atomsResp] = await Promise.all([
         fetch(`${base}/api/skills`).catch(() => null),
@@ -1284,7 +1288,7 @@ view is the single source of truth.`);
   const out = typeof flags.out === 'string' && flags.out.length > 0
     ? flags.out
     : process.cwd();
-  const base = pluginDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await pluginDaemonUrl(flags)).replace(/\/$/, '');
   const resp = await fetch(`${base}/api/applied-plugins/export`, {
     method:  'POST',
     headers: { 'content-type': 'application/json' },
@@ -1323,14 +1327,14 @@ async function runMarketplace(args) {
                                                               Update the marketplace trust tier.
 
 Common options:
-  --daemon-url <url>   Open Design daemon HTTP base (default OD_DAEMON_URL or http://127.0.0.1:7456).
+  --daemon-url <url>   Open Design daemon HTTP base (default OD_DAEMON_URL, OD_SIDECAR_IPC_PATH discovery, or http://127.0.0.1:7456).
   --json               Emit raw JSON (suitable for scripts).`);
     process.exit(args.length === 0 ? 2 : 0);
   }
   const sub = args[0];
   const rest = args.slice(1);
   const flags = parseFlags(rest, { string: PLUGIN_STRING_FLAGS, boolean: PLUGIN_BOOLEAN_FLAGS });
-  const base = pluginDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await pluginDaemonUrl(flags)).replace(/\/$/, '');
   switch (sub) {
     case 'list': {
       const resp = await fetch(`${base}/api/marketplaces`);
@@ -1550,7 +1554,7 @@ async function runPluginSnapshots(args) {
     process.exit(args.length === 0 ? 2 : 0);
   }
   const flags = parseFlags(args.slice(1), { string: PLUGIN_STRING_FLAGS, boolean: PLUGIN_BOOLEAN_FLAGS });
-  const base = pluginDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await pluginDaemonUrl(flags)).replace(/\/$/, '');
   if (sub === 'show') {
     const positional = args.slice(1).filter((a) => !a.startsWith('-'));
     const id = positional[0];
@@ -1687,7 +1691,7 @@ async function runPluginRun(rest) {
   const grantCaps = typeof flags['grant-caps'] === 'string' && flags['grant-caps'].length > 0
     ? flags['grant-caps'].split(',').map((c) => c.trim()).filter(Boolean)
     : [];
-  const base = pluginDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await pluginDaemonUrl(flags)).replace(/\/$/, '');
   // 1. Apply (returns ApplyResult + manifestSourceDigest).
   const applyResp = await fetch(`${base}/api/plugins/${encodeURIComponent(id)}/apply`, {
     method: 'POST',
@@ -1738,8 +1742,8 @@ async function runPluginRun(rest) {
   }
 }
 
-function pluginDaemonUrl(flags) {
-  return (flags && flags['daemon-url']) || process.env.OD_DAEMON_URL || 'http://127.0.0.1:7456';
+async function pluginDaemonUrl(flags) {
+  return cliDaemonUrl(flags);
 }
 
 // Plan §3.Y1 — filter knobs on `od plugin list` (and feeds
@@ -1824,7 +1828,7 @@ Prints an at-a-glance plugin + snapshot inventory:
   - Oldest / newest applied snapshot timestamps.`);
     process.exit(0);
   }
-  const base = pluginDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await pluginDaemonUrl(flags)).replace(/\/$/, '');
   const url = `${base}/api/plugins/stats`;
   const resp = await fetch(url);
   if (!resp.ok) {
@@ -1875,7 +1879,7 @@ function formatTimestamp(ts) {
 }
 
 async function fetchPluginList(flags) {
-  const url = `${pluginDaemonUrl(flags).replace(/\/$/, '')}/api/plugins`;
+  const url = `${(await pluginDaemonUrl(flags)).replace(/\/$/, '')}/api/plugins`;
   const resp = await fetch(url);
   if (!resp.ok) {
     console.error(`GET /api/plugins failed: ${resp.status} ${await resp.text()}`);
@@ -1941,7 +1945,7 @@ async function runPluginInfo(rest) {
     console.error('Usage: od plugin info <id-or-marketplace-name> [--version <version|tag|range>] [--json]');
     process.exit(2);
   }
-  const base = pluginDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await pluginDaemonUrl(flags)).replace(/\/$/, '');
   const url = `${base}/api/plugins/${encodeURIComponent(id)}`;
   const resp = await fetch(url);
   if (resp.ok && !flags.version) {
@@ -2032,7 +2036,7 @@ async function runPluginManifest(rest) {
     console.error('Usage: od plugin manifest <id>');
     process.exit(2);
   }
-  const url = `${pluginDaemonUrl(flags).replace(/\/$/, '')}/api/plugins/${encodeURIComponent(id)}`;
+  const url = `${(await pluginDaemonUrl(flags)).replace(/\/$/, '')}/api/plugins/${encodeURIComponent(id)}`;
   const resp = await fetch(url);
   if (resp.status === 404) {
     console.error(`plugin ${id} not found`);
@@ -2057,7 +2061,7 @@ async function runPluginManifest(rest) {
 // authors comparing their fork to its upstream installs.
 async function runPluginSources(rest) {
   const flags = parseFlags(rest, { string: PLUGIN_STRING_FLAGS, boolean: PLUGIN_BOOLEAN_FLAGS });
-  const url = `${pluginDaemonUrl(flags).replace(/\/$/, '')}/api/plugins`;
+  const url = `${(await pluginDaemonUrl(flags)).replace(/\/$/, '')}/api/plugins`;
   const resp = await fetch(url);
   if (!resp.ok) {
     console.error(`GET /api/plugins failed: ${resp.status} ${await resp.text()}`);
@@ -2106,7 +2110,7 @@ async function runPluginInstall(rest) {
       '       od plugin install <name>[@version|tag|range]  # resolves through configured marketplaces');
     process.exit(2);
   }
-  const url = `${pluginDaemonUrl(flags).replace(/\/$/, '')}/api/plugins/install`;
+  const url = `${(await pluginDaemonUrl(flags)).replace(/\/$/, '')}/api/plugins/install`;
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
@@ -2196,7 +2200,7 @@ Lifecycle vocabulary:
     string:  new Set([...PLUGIN_STRING_FLAGS, 'since', 'kind', 'plugin-id']),
     boolean: new Set([...PLUGIN_BOOLEAN_FLAGS, 'f', 'follow']),
   });
-  const base = pluginDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await pluginDaemonUrl(flags)).replace(/\/$/, '');
   const since = typeof flags.since === 'string' ? Number(flags.since) : 0;
   const kindFilter = typeof flags.kind === 'string' && flags.kind.length > 0 ? flags.kind : null;
   const pluginIdFilter = typeof flags['plugin-id'] === 'string' && flags['plugin-id'].length > 0
@@ -2417,7 +2421,7 @@ Exit codes:
   2  CLI usage error / plugin not found / config malformed`);
     process.exit(id ? 0 : 2);
   }
-  const base = pluginDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await pluginDaemonUrl(flags)).replace(/\/$/, '');
 
   // 1. Resolve the plugin record (fsPath + manifest).
   const pluginResp = await fetch(`${base}/api/plugins/${encodeURIComponent(id)}`);
@@ -2589,7 +2593,7 @@ Closed signal vocabulary:
   }
   // Fetch the plugin from the daemon so we get the resolved
   // manifest (including pipeline).
-  const base = pluginDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await pluginDaemonUrl(flags)).replace(/\/$/, '');
   const resp = await fetch(`${base}/api/plugins/${encodeURIComponent(id)}`);
   if (resp.status === 404) {
     console.error(`plugin ${id} not found`);
@@ -2671,7 +2675,7 @@ exits 4 on mismatch. Useful for committing renderPluginBlock()
 fixtures into a plugin's own tests/.`);
     process.exit(id ? 0 : 2);
   }
-  const base = pluginDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await pluginDaemonUrl(flags)).replace(/\/$/, '');
   const url = `${base}/api/applied-plugins/${encodeURIComponent(id)}/canon`;
   const checkPath = typeof flags.check === 'string' ? flags.check : null;
   // --check always wants the raw text output; force text/plain.
@@ -2743,7 +2747,7 @@ into 'added' / 'removed' / 'changed' with one line per field.`);
     process.exit(positional.length < 2 ? 2 : 0);
   }
   const [idA, idB] = positional;
-  const base = pluginDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await pluginDaemonUrl(flags)).replace(/\/$/, '');
   const [respA, respB] = await Promise.all([
     fetch(`${base}/api/plugins/${encodeURIComponent(idA)}`),
     fetch(`${base}/api/plugins/${encodeURIComponent(idB)}`),
@@ -2792,7 +2796,7 @@ async function runPluginUpgrade(rest) {
     console.error('Usage: od plugin upgrade <id> [--policy latest|pinned] [--json]');
     process.exit(2);
   }
-  const url = `${pluginDaemonUrl(flags).replace(/\/$/, '')}/api/plugins/${encodeURIComponent(id)}/upgrade`;
+  const url = `${(await pluginDaemonUrl(flags)).replace(/\/$/, '')}/api/plugins/${encodeURIComponent(id)}/upgrade`;
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
@@ -2858,7 +2862,7 @@ async function runPluginUninstall(rest) {
     console.error('Usage: od plugin uninstall <id>');
     process.exit(2);
   }
-  const url = `${pluginDaemonUrl(flags).replace(/\/$/, '')}/api/plugins/${encodeURIComponent(id)}/uninstall`;
+  const url = `${(await pluginDaemonUrl(flags)).replace(/\/$/, '')}/api/plugins/${encodeURIComponent(id)}/uninstall`;
   const resp = await fetch(url, { method: 'POST' });
   if (!resp.ok) {
     console.error(`POST /api/plugins/${id}/uninstall failed: ${resp.status} ${await resp.text()}`);
@@ -2905,7 +2909,7 @@ async function runPluginApply(rest) {
   const grantCaps = typeof flags['grant-caps'] === 'string' && flags['grant-caps'].length > 0
     ? flags['grant-caps'].split(',').map((c) => c.trim()).filter(Boolean)
     : [];
-  const url = `${pluginDaemonUrl(flags).replace(/\/$/, '')}/api/plugins/${encodeURIComponent(id)}/apply`;
+  const url = `${(await pluginDaemonUrl(flags)).replace(/\/$/, '')}/api/plugins/${encodeURIComponent(id)}/apply`;
   let resp;
   try {
     resp = await fetch(url, {
@@ -2916,7 +2920,7 @@ async function runPluginApply(rest) {
   } catch (err) {
     return exitWithStructuredError({
       code: 'daemon-not-running',
-      message: `Cannot reach daemon at ${pluginDaemonUrl(flags)}: ${err?.message ?? err}`,
+      message: `Cannot reach daemon at ${await pluginDaemonUrl(flags)}: ${err?.message ?? err}`,
     });
   }
   const data = await resp.json().catch(() => ({}));
@@ -2990,7 +2994,7 @@ publish from a frozen run snapshot rather than the live installed copy.`);
     console.error('--to <catalog> is required (one of: open-design, anthropics-skills, awesome-agent-skills, clawhub, skills-sh)');
     process.exit(2);
   }
-  const base = pluginDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await pluginDaemonUrl(flags)).replace(/\/$/, '');
   // Pull the plugin metadata from the daemon. We do this through the
   // existing /api/plugins/:id endpoint so the CLI never needs a direct
   // SQLite handle; everything stays loopback-mediated.
@@ -3188,7 +3192,7 @@ async function runPluginDoctor(rest) {
     console.error('Usage: od plugin doctor <id> [--strict] [--json]');
     process.exit(2);
   }
-  const url = `${pluginDaemonUrl(flags).replace(/\/$/, '')}/api/plugins/${encodeURIComponent(id)}/doctor`;
+  const url = `${(await pluginDaemonUrl(flags)).replace(/\/$/, '')}/api/plugins/${encodeURIComponent(id)}/doctor`;
   const resp = await fetch(url, { method: 'POST' });
   if (!resp.ok) {
     console.error(`POST /api/plugins/${id}/doctor failed: ${resp.status} ${await resp.text()}`);
@@ -3246,7 +3250,7 @@ async function runPluginReplay(rest) {
     console.error('--snapshot-id is required (runs are in-memory in Phase 2A; pass the snapshot id returned by od plugin apply)');
     process.exit(2);
   }
-  const url = `${pluginDaemonUrl(flags).replace(/\/$/, '')}/api/runs/${encodeURIComponent(runId)}/replay`;
+  const url = `${(await pluginDaemonUrl(flags)).replace(/\/$/, '')}/api/runs/${encodeURIComponent(runId)}/replay`;
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -3291,7 +3295,7 @@ async function runPluginTrust(rest) {
     process.exit(2);
   }
   const action = flags.revoke ? 'revoke' : 'grant';
-  const url = `${pluginDaemonUrl(flags).replace(/\/$/, '')}/api/plugins/${encodeURIComponent(id)}/trust`;
+  const url = `${(await pluginDaemonUrl(flags)).replace(/\/$/, '')}/api/plugins/${encodeURIComponent(id)}/trust`;
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -3341,13 +3345,13 @@ async function runUi(args) {
   }
 }
 
-function uiDaemonUrl(flags) {
-  return (flags && flags['daemon-url']) || process.env.OD_DAEMON_URL || 'http://127.0.0.1:7456';
+async function uiDaemonUrl(flags) {
+  return cliDaemonUrl(flags);
 }
 
 async function runUiList(rest) {
   const flags = parseFlags(rest, { string: UI_STRING_FLAGS, boolean: UI_BOOLEAN_FLAGS });
-  const base = uiDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await uiDaemonUrl(flags)).replace(/\/$/, '');
   let url;
   if (flags.run) url = `${base}/api/runs/${encodeURIComponent(flags.run)}/genui`;
   else if (flags.project) url = `${base}/api/projects/${encodeURIComponent(flags.project)}/genui`;
@@ -3393,7 +3397,7 @@ async function runUiShow(rest) {
     console.error('Usage: od ui show --run <runId> <surfaceId>');
     process.exit(2);
   }
-  const url = `${uiDaemonUrl(flags).replace(/\/$/, '')}/api/runs/${encodeURIComponent(runId)}/genui/${encodeURIComponent(surfaceId)}`;
+  const url = `${(await uiDaemonUrl(flags)).replace(/\/$/, '')}/api/runs/${encodeURIComponent(runId)}/genui/${encodeURIComponent(surfaceId)}`;
   const resp = await fetch(url);
   if (!resp.ok) {
     console.error(`GET ${url} failed: ${resp.status} ${await resp.text()}`);
@@ -3443,7 +3447,7 @@ async function runUiRespond(rest) {
   } else if (typeof flags.value === 'string') {
     value = flags.value;
   }
-  const url = `${uiDaemonUrl(flags).replace(/\/$/, '')}/api/runs/${encodeURIComponent(runId)}/genui/${encodeURIComponent(surfaceId)}/respond`;
+  const url = `${(await uiDaemonUrl(flags)).replace(/\/$/, '')}/api/runs/${encodeURIComponent(runId)}/genui/${encodeURIComponent(surfaceId)}/respond`;
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -3479,7 +3483,7 @@ async function runUiRevoke(rest) {
     console.error('Usage: od ui revoke --project <projectId> <surfaceId>');
     process.exit(2);
   }
-  const url = `${uiDaemonUrl(flags).replace(/\/$/, '')}/api/projects/${encodeURIComponent(projectId)}/genui/${encodeURIComponent(surfaceId)}/revoke`;
+  const url = `${(await uiDaemonUrl(flags)).replace(/\/$/, '')}/api/projects/${encodeURIComponent(projectId)}/genui/${encodeURIComponent(surfaceId)}/revoke`;
   const resp = await fetch(url, { method: 'POST' });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
@@ -3521,7 +3525,7 @@ async function runUiPrefill(rest) {
   } else if (typeof flags.value === 'string') {
     value = flags.value;
   }
-  const url = `${uiDaemonUrl(flags).replace(/\/$/, '')}/api/projects/${encodeURIComponent(projectId)}/genui/prefill`;
+  const url = `${(await uiDaemonUrl(flags)).replace(/\/$/, '')}/api/projects/${encodeURIComponent(projectId)}/genui/prefill`;
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -3558,7 +3562,7 @@ function printUiHelp() {
                                                      Pre-answer a surface so the run never broadcasts it.
 
 Common options:
-  --daemon-url <url>   Open Design daemon HTTP base (default OD_DAEMON_URL or http://127.0.0.1:7456).
+  --daemon-url <url>   Open Design daemon HTTP base (default OD_DAEMON_URL, OD_SIDECAR_IPC_PATH discovery, or http://127.0.0.1:7456).
   --json               Emit raw JSON (suitable for scripts) instead of human-readable output.`);
 }
 
@@ -3601,7 +3605,7 @@ function printPluginHelp() {
   od plugin whoami [--host github.com]     Show the gh account used for publishing.
 
 Common options:
-  --daemon-url <url>   Open Design daemon HTTP base (default OD_DAEMON_URL or http://127.0.0.1:7456).
+  --daemon-url <url>   Open Design daemon HTTP base (default OD_DAEMON_URL, OD_SIDECAR_IPC_PATH discovery, or http://127.0.0.1:7456).
   --json               Emit raw JSON (suitable for scripts) instead of human-readable output.
 
 Installs support local folders, github:owner/repo refs, HTTPS .tgz archives,
@@ -3619,8 +3623,8 @@ and bare marketplace names resolved through configured registry sources.`);
 // reachable via the CLI; we wrap rather than duplicate.
 // ---------------------------------------------------------------------------
 
-function projectDaemonUrl(flags) {
-  return (flags && flags['daemon-url']) || process.env.OD_DAEMON_URL || 'http://127.0.0.1:7456';
+async function projectDaemonUrl(flags) {
+  return cliDaemonUrl(flags);
 }
 
 function safeReadJsonFile(p) {
@@ -3651,7 +3655,7 @@ Common options:
   const sub = args[0];
   const rest = args.slice(1);
   const flags = parseFlags(rest, { string: PROJECT_STRING_FLAGS, boolean: PROJECT_BOOLEAN_FLAGS });
-  const base = projectDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await projectDaemonUrl(flags)).replace(/\/$/, '');
   switch (sub) {
     case 'list': {
       const resp = await fetch(`${base}/api/projects`);
@@ -3763,7 +3767,7 @@ Common options:
   const sub = args[0];
   const rest = args.slice(1);
   const flags = parseFlags(rest, { string: PROJECT_STRING_FLAGS, boolean: PROJECT_BOOLEAN_FLAGS });
-  const base = projectDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await projectDaemonUrl(flags)).replace(/\/$/, '');
   switch (sub) {
     case 'list': {
       const url = flags.project
@@ -3924,7 +3928,7 @@ Common options:
   const sub = args[0];
   const rest = args.slice(1);
   const flags = parseFlags(rest, { string: PROJECT_STRING_FLAGS, boolean: PROJECT_BOOLEAN_FLAGS });
-  const base = projectDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await projectDaemonUrl(flags)).replace(/\/$/, '');
   switch (sub) {
     case 'list': {
       const id = rest.find((a) => !a.startsWith('-'));
@@ -4047,7 +4051,7 @@ Common options:
   const sub = args[0];
   const rest = args.slice(1);
   const flags = parseFlags(rest, { string: PROJECT_STRING_FLAGS, boolean: PROJECT_BOOLEAN_FLAGS });
-  const base = projectDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await projectDaemonUrl(flags)).replace(/\/$/, '');
   switch (sub) {
     case 'list': {
       const id = rest.find((a) => !a.startsWith('-'));
@@ -4099,7 +4103,6 @@ async function runDaemon(args) {
   if (args.length === 0 || args[0] === 'help' || args.includes('--help') || args.includes('-h')) {
     console.log(`Usage:
   od daemon start [--headless] [--serve-web] [--port <n>] [--host <addr>] [--no-open]
-                  [--namespace <ns>]
                                           Start the daemon (Phase 1.5 headless mode).
   od daemon status [--json] [--daemon-url <url>]
                                           Print the daemon's runtime snapshot.
@@ -4157,7 +4160,7 @@ vacuum:
   sizes + elapsed ms.`);
     process.exit(sub ? 0 : 2);
   }
-  const base = libraryDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await libraryDaemonUrl(flags)).replace(/\/$/, '');
   if (sub === 'vacuum') {
     const resp = await fetch(`${base}/api/daemon/db/vacuum`, { method: 'POST' });
     if (!resp.ok) {
@@ -4246,7 +4249,6 @@ async function runDaemonStart(flags) {
   const port = Number(flags.port ?? process.env.OD_PORT ?? 7456);
   const host = String(flags.host ?? process.env.OD_BIND_HOST ?? '127.0.0.1');
   const headless = Boolean(flags.headless || flags['no-open'] || flags['serve-web']);
-  if (flags.namespace) process.env.OD_NAMESPACE = String(flags.namespace);
   process.env.OD_BIND_HOST = host;
   process.env.OD_PORT = String(port);
   const { startServer: startHeadless } = await import('./server.js');
@@ -4286,7 +4288,7 @@ async function runDaemonStart(flags) {
 }
 
 async function runDaemonStatus(flags) {
-  const base = (flags['daemon-url'] || process.env.OD_DAEMON_URL || 'http://127.0.0.1:7456').replace(/\/$/, '');
+  const base = await cliDaemonBaseUrl(flags);
   let resp;
   try {
     resp = await fetch(`${base}/api/daemon/status`);
@@ -4299,11 +4301,11 @@ async function runDaemonStatus(flags) {
   if (!resp.ok) return structuredHttpFailure(resp);
   const data = await resp.json();
   if (flags.json) return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
-  console.log(`[daemon] ${data.bindHost}:${data.port} v${data.version} pid=${data.pid} plugins=${data.installedPlugins} namespace=${data.namespace ?? '-'}`);
+  console.log(`[daemon] ${data.bindHost}:${data.port} v${data.version} pid=${data.pid} plugins=${data.installedPlugins}`);
 }
 
 async function runDaemonStop(flags) {
-  const base = (flags['daemon-url'] || process.env.OD_DAEMON_URL || 'http://127.0.0.1:7456').replace(/\/$/, '');
+  const base = await cliDaemonBaseUrl(flags);
   let resp;
   try {
     resp = await fetch(`${base}/api/daemon/shutdown`, { method: 'POST' });
@@ -4325,8 +4327,8 @@ async function runDaemonStop(flags) {
 // (the §11.7 "headless = canonical" invariant).
 // ---------------------------------------------------------------------------
 
-function libraryDaemonUrl(flags) {
-  return (flags && flags['daemon-url']) || process.env.OD_DAEMON_URL || 'http://127.0.0.1:7456';
+async function libraryDaemonUrl(flags) {
+  return cliDaemonUrl(flags);
 }
 
 async function runAtoms(args) {
@@ -4344,7 +4346,7 @@ Common options:
   const sub = args[0];
   const rest = args.slice(1);
   const flags = parseFlags(rest, { string: LIBRARY_STRING_FLAGS, boolean: LIBRARY_BOOLEAN_FLAGS });
-  const base = libraryDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await libraryDaemonUrl(flags)).replace(/\/$/, '');
   switch (sub) {
     case 'list': {
       const resp = await fetch(`${base}/api/atoms`);
@@ -4418,7 +4420,7 @@ async function runLibraryList(name, args) {
   const sub = args[0];
   const rest = args.slice(1);
   const flags = parseFlags(rest, { string: LIBRARY_STRING_FLAGS, boolean: LIBRARY_BOOLEAN_FLAGS });
-  const base = libraryDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await libraryDaemonUrl(flags)).replace(/\/$/, '');
   const apiPath = name === 'design-systems' ? '/api/design-systems' : `/api/${name}`;
   switch (sub) {
     case 'list': {
@@ -4462,7 +4464,7 @@ async function runStatus(args) {
 
 async function runVersion(args) {
   const flags = parseFlags(args, { string: LIBRARY_STRING_FLAGS, boolean: LIBRARY_BOOLEAN_FLAGS });
-  const base = libraryDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await libraryDaemonUrl(flags)).replace(/\/$/, '');
   let resp;
   try {
     resp = await fetch(`${base}/api/version`);
@@ -4511,7 +4513,7 @@ Exit code is non-zero when any installed plugin's doctor returns ok=false
 or the daemon cannot be reached.`);
     process.exit(0);
   }
-  const base = libraryDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await libraryDaemonUrl(flags)).replace(/\/$/, '');
   const report = {
     daemon:        null,
     plugins:       [],
@@ -4628,7 +4630,7 @@ Common options:
   const sub = args[0];
   const rest = args.slice(1);
   const flags = parseFlags(rest, { string: CONFIG_STRING_FLAGS, boolean: CONFIG_BOOLEAN_FLAGS });
-  const base = libraryDaemonUrl(flags).replace(/\/$/, '');
+  const base = (await libraryDaemonUrl(flags)).replace(/\/$/, '');
 
   const fetchConfig = async () => {
     const resp = await fetch(`${base}/api/app-config`);

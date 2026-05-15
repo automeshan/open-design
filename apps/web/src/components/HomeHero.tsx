@@ -8,7 +8,12 @@
 // without owning their data lifecycles.
 
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ForwardedRef, KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type {
+  ClipboardEvent as ReactClipboardEvent,
+  DragEvent as ReactDragEvent,
+  ForwardedRef,
+  KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import type { InputFieldSpec, InstalledPluginRecord, McpServerConfig } from '@open-design/contracts';
 import type { SkillSummary } from '../types';
 import { Icon, type IconName } from './Icon';
@@ -328,14 +333,14 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
     onAddFiles(files);
   }
 
-  function handlePaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
+  function handlePaste(event: ReactClipboardEvent<HTMLTextAreaElement>) {
     const files = filesFromClipboard(event.clipboardData);
     if (files.length === 0) return;
     event.preventDefault();
     handleFiles(files);
   }
 
-  function handleDrop(event: React.DragEvent<HTMLDivElement>) {
+  function handleDrop(event: ReactDragEvent<HTMLDivElement>) {
     const files = Array.from(event.dataTransfer.files ?? []);
     if (files.length === 0) return;
     event.preventDefault();
