@@ -348,6 +348,9 @@ code {
   box-shadow: 0 1px 0 color-mix(in srgb, var(--bg-panel) 80%, transparent) inset;
   user-select: none;
   -webkit-app-region: drag;
+  overflow: visible;
+  position: relative;
+  z-index: 120;
 }
 .workspace-tabs-chrome .workspace-tabs-traffic {
   margin-right: calc(var(--app-chrome-traffic-margin) + 8px);
@@ -405,8 +408,8 @@ code {
   align-items: center;
   gap: 0;
   padding-left: 0;
-  overflow: hidden;
-  contain: layout style paint;
+  overflow: visible;
+  contain: layout style;
   -webkit-app-region: no-drag;
 }
 .workspace-tab {
@@ -557,6 +560,7 @@ code {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  z-index: 130;
   -webkit-app-region: no-drag;
 }
 .workspace-tabs-popover,
