@@ -40,5 +40,11 @@
       "electron",
       "esbuild"
     ]
-  }
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "tools/*",
+    "e2e"
+  ]
 }
